@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+from setuptools import setup
+
 
 import os
 from setuptools import setup, find_packages
@@ -10,12 +11,12 @@ install_reqs = parse_requirements(path_req, session=False)
 
 reqs = [str(ir.req) for ir in install_reqs]
 
+
 setup(name='pgoapi',
-      author = 'tjado',
-      description = 'Pokemon Go API lib',
-      version = '1.1.6',
-      url = 'https://github.com/tejado/pgoapi',
-      download_url = "https://github.com/tejado/pgoapi/releases",
+      author = 'p0ps',
+      description = 'Modified Pokemon Go API lib',
+      version = '1.1.7',
       packages = find_packages(),
       install_requires = reqs,
      )
+

@@ -28,6 +28,7 @@ from __future__ import absolute_import
 import re
 import six
 import logging
+import time
 import requests
 
 from . import __title__, __version__, __copyright__
@@ -35,6 +36,7 @@ from pgoapi.rpc_api import RpcApi
 from pgoapi.auth_ptc import AuthPtc
 from pgoapi.auth_google import AuthGoogle
 from pgoapi.utilities import parse_api_endpoint
+from pgoapi.location import get_route, get_increments
 from pgoapi.exceptions import AuthException, NotLoggedInException, ServerBusyOrOfflineException, NoPlayerPositionSetException, EmptySubrequestChainException, AuthTokenExpiredException, ServerApiEndpointRedirectException, UnexpectedResponseException
 
 from . import protos
@@ -98,7 +100,7 @@ class PGoApi:
 
     def set_position(self, lat, lng, alt):
         self.log.debug('Set Position - Lat: %s Long: %s Alt: %s', lat, lng, alt)
-
+        self._posf = (lat, lng, alt)
         self._position_lat = lat
         self._position_lng = lng
         self._position_alt = alt
@@ -188,6 +190,59 @@ class PGoApi:
         self.log.info('Login process completed')
 
         return True
+    
+    
+    def walk_to(self, loc):
+        steps = get_route(self._posf, loc, self.config.get("USE_GOOGLE", False), self.config.get("GMAPS_API_KEY", ""))
+        for step in steps:
+            for i, next_point in enumerate(get_increments(self._posf, step, 10)):
+                self.set_position(*next_point)
+                self.heartbeat()
+                self.log.info("Walking at position {lat},{lon}".format(lat=self._position_lat,
+                                                                       lon=self._position_lon))
+                time.sleep(2) # If you want to make it faster, delete this line... would not recommend though
+        pass
+
+    
+    def attempt_catch(self, encounter_id, spawn_point_guid): #Problem here... add 4 if you have master ball
+        for i in range(1,3): # Range 1...4 iff you have master ball `range(1,4)`
+            r = self.catch_pokemon(
+                normalized_reticle_size= 1.950,
+                pokeball = i,
+                spin_modifier= 0.850,
+                hit_pokemon=True,
+                normalized_hit_position=1,
+                encounter_id=encounter_id,
+                spawn_point_guid=spawn_point_guid,
+                ).call()['responses']['CATCH_POKEMON']
+            if "status" in r:
+                return r
+    
+    def encounter_pokemon(self, pokemon):
+        encounter_id = pokemon['encounter_id']
+        spawn_point_id = pokemon['spawn_point_id']
+        position = self._posf
+        encounter = self.encounter(encounter_id=encounter_id,
+                                   spawn_point_id=spawn_point_id,
+                                   player_latitude=position[0],
+                                   player_longitude=position[1]).call()['responses']['ENCOUNTER']
+        self.log.debug("Started Encounter: %s", encounter)
+        if encounter['status'] == 1:
+            capture_status = -1
+            while capture_status != 0 and capture_status != 3:
+                catch_attempt = self.attempt_catch(encounter_id, spawn_point_id)
+                capture_status = catch_attempt['status']
+                if capture_status == 1:
+                    self.log.debug("Caught Pokemon: : %s", catch_attempt)
+                    self.log.info("Caught Pokemon:  %s", self.pokemon_names[str(pokemon['pokemon_id'])])
+                    time.sleep(5) # If you want to make it faster, delete this line... would not recommend though
+                    return catch_attempt
+                elif capture_status != 2:
+                    self.log.debug("Failed Catch: : %s", catch_attempt)
+                    self.log.info("Failed to Catch Pokemon:  %s", self.pokemon_names[str(pokemon['pokemon_id'])])
+                return False
+                time.sleep(5) # If you want to make it faster, delete this line... would not recommend though
+        return False
 
 
 class PGoApiRequest:
@@ -280,7 +335,7 @@ class PGoApiRequest:
 
     def set_position(self, lat, lng, alt):
         self.log.debug('Set Position - Lat: %s Long: %s Alt: %s', lat, lng, alt)
-
+        self._posf = (lat, lng, alt)
         self._position_lat = lat
         self._position_lng = lng
         self._position_alt = alt
